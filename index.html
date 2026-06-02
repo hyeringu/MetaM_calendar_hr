@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>업무 스케줄 캘린더</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+    background: #f0f4f8;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+
+  /* ── 비밀번호 ── */
+  #lock-screen {
+    position: fixed; inset: 0;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999; flex-direction: column; gap: 32px;
+  }
+  #lock-screen h1 { color: #e2e8f0; font-size: 2rem; letter-spacing: 4px; text-align: center; }
+  #lock-screen .subtitle { color: #94a3b8; font-size: 0.95rem; text-align: center; margin-top: -20px; }
+  .pin-box {
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px; padding: 40px 50px;
+    display: flex; flex-direction: column; align-items: center; gap: 28px;
+    backdrop-filter: blur(10px);
+  }
+  .pin-dots { display: flex; gap: 16px; }
+  .pin-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #64748b; background: transparent; transition: all 0.2s; }
+  .pin-dot.filled { background: #3b82f6; border-color: #3b82f6; box-shadow: 0 0 10px #3b82f680; }
+  .pin-dot.error  { background: #ef4444; border-color: #ef4444; box-shadow: 0 0 10px #ef444480; }
+  .numpad { display: grid; grid-template-columns: repeat(3, 72px); gap: 12px; }
+  .numpad button {
+    width: 72px; height: 72px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08);
+    color: #e2e8f0; font-size: 1.5rem; font-weight: 600; cursor: pointer; transition: all 0.15s;
+  }
+  .numpad button:hover  { background: rgba(255,255,255,0.18); }
+  .numpad button:active { transform: scale(0.93); }
+  .numpad button.del    { font-size: 1rem; color: #94a3b8; }
+  .error-msg { color: #f87171; font-size: 0.88rem; height: 20px; text-align: center; }
+
+  /* ── 앱 ── */
+  #app { display: none; flex-direction: column; flex: 1; }
+
+  header {
+    background: linear-gradient(90deg, #1e3a5f 0%, #2563eb 100%);
+    color: white; padding: 18px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  }
+  header h1 { font-size: 1.5rem; letter-spacing: 2px; }
+  .header-btns { display: flex; gap: 10px; }
+  .today-btn, .add-btn {
+    border: 1px solid rgba(255,255,255,0.3); color: white;
+    padding: 8px 20px; border-radius: 20px; cursor: pointer;
+    font-size: 0.9rem; transition: background 0.2s; font-family: inherit;
+  }
+  .today-btn { background: rgba(255,255,255,0.15); }
+  .add-btn   { background: rgba(255,255,255,0.25); }
+  .today-btn:hover { background: rgba(255,255,255,0.28); }
+  .add-btn:hover   { background: rgba(255,255,255,0.38); }
+
+  .cal-wrapper { padding: 20px 28px 0; max-width: 1400px; width: 100%; margin: 0 auto; }
+  .cal-nav { display: flex; align-items: center; justify-content: center; gap: 24px; margin-bottom: 16px; }
+  .cal-nav button {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: #2563eb; color: white; font-size: 1.2rem; cursor: pointer; transition: background 0.2s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cal-nav button:hover { background: #1d4ed8; }
+  .cal-nav h2 { font-size: 1.8rem; font-weight: 700; color: #1e3a5f; min-width: 200px; text-align: center; }
+
+  .cal-grid { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.10); }
+  .cal-header-row { display: grid; grid-template-columns: repeat(7, 1fr); background: #1e3a5f; }
+  .cal-header-row div { text-align: center; padding: 14px 0; color: white; font-weight: 600; font-size: 0.95rem; letter-spacing: 1px; }
+  .cal-header-row div:first-child { color: #fca5a5; }
+  .cal-header-row div:last-child  { color: #93c5fd; }
+
+  .cal-body {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: 130px;
+    border-left: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb;
+  }
+  .cal-day {
+    border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb;
+    padding: 6px; overflow: hidden; position: relative; transition: background 0.15s;
+  }
+  .cal-day:hover { background: #f8faff; }
+  .cal-day.other-month { background: #f9fafb; }
+  .cal-day.other-month .day-num { color: #d1d5db; }
+  .cal-day.today { background: #eff6ff; }
+  .cal-day.today .day-num { background: #2563eb; color: white; border-radius: 50%; }
+  .day-num-row {
+    display: flex; align-items: center; gap: 4px; margin-bottom: 3px;
+  }
+  .day-num {
+    font-size: 0.9rem; font-weight: 600; color: #374151;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .leave-tag {
+    font-size: 0.65rem; color: #b0b0b0; font-weight: 500;
+    background: #f0f0f0; border-radius: 4px; padding: 1px 5px;
+    white-space: nowrap;
+  }
+  .cal-day.sun .day-num { color: #dc2626; }
+  .cal-day.sun.today .day-num { background: #dc2626; color: white; }
+  .cal-day.sat .day-num { color: #2563eb; }
+
+  .event-chip {
+    border-left: 3px solid #2563eb; border-radius: 4px;
+    padding: 2px 6px; font-size: 0.74rem; margin-bottom: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: pointer; transition: filter 0.15s;
+    background: #dbeafe; color: #1d4ed8;
+  }
+  .holiday-label {
+    font-size: 0.7rem; font-weight: 600;
+    color: #e53e3e;
+    margin-bottom: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cal-day.is-holiday .day-num { color: #e53e3e; }
+  .cal-day.is-holiday.today .day-num { background: #e53e3e; color: white; }
+
+  .event-chip:hover   { filter: brightness(0.92); }
+  .event-chip { user-select: none; }
+  .event-chip.selected { outline: 2px solid #1e40af; outline-offset: 1px; filter: brightness(0.88); }
+  .event-chip.done {
+    text-decoration: line-through;
+    background: #e8e8e8 !important;
+    color: #999 !important;
+    border-left-color: #bbb !important;
+    border-color: #d0d0d0 !important;
+    opacity: 0.75;
+  }
+  .event-chip.type-general  { background: transparent; color: #9d3a6a; border: 1px solid #f4a7c7; border-left: 3px solid #f4a7c7; }
+  .event-chip.type-meeting  { background: transparent; color: #8a6e00; border: 1px solid #f5de6e; border-left: 3px solid #f5de6e; }
+  .event-chip.type-deadline { background: transparent; color: #a83232; border: 1px solid #f5a8a8; border-left: 3px solid #f5a8a8; }
+  .event-chip.type-task     { background: transparent; color: #555555; border: 1px solid #c0c0c0; border-left: 3px solid #c0c0c0; }
+  .event-chip.type-etc      { background: transparent; color: #6b3a9b; border: 1px solid #c9a3e8; border-left: 3px solid #c9a3e8; }
+
+  /* ── 하단 상세 패널 ── */
+  #detail-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: white; border-top: 3px solid #2563eb;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    transform: translateY(100%); transition: transform 0.3s ease;
+    z-index: 200;
+  }
+  #detail-bar.open { transform: translateY(0); }
+  .detail-bar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 24px;
+    background: linear-gradient(90deg, #1e3a5f, #2563eb);
+    color: white;
+  }
+  .detail-bar-header h3 { font-size: 1rem; }
+  .detail-bar-header .close-btn {
+    background: none; border: none; color: white;
+    font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 0 4px;
+  }
+  .detail-bar-body {
+    padding: 14px 24px;
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  .detail-bar-body .detail-card { flex: 1; min-width: 260px; }
+  .detail-bar-btns { display: flex; gap: 10px; flex-shrink: 0; }
+  .detail-bar-btns button {
+    padding: 10px 22px; border-radius: 10px; font-size: 0.9rem;
+    font-weight: 600; cursor: pointer; border: none; font-family: inherit;
+    transition: all 0.2s;
+  }
+  #done-btn        { background: #e2e8f0; color: #374151; }
+  #done-btn:hover  { background: #cbd5e1; }
+  #done-btn.is-done        { background: #86efac; color: #14532d; }
+  #done-btn.is-done:hover  { background: #4ade80; }
+  #edit-btn        { background: #dbeafe; color: #1d4ed8; }
+  #edit-btn:hover  { background: #bfdbfe; }
+
+  .detail-card {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 16px; border-radius: 10px; border: 1px solid #e5e7eb;
+    min-width: 260px; flex: 1; max-width: 500px;
+  }
+  .detail-card.type-general  { background: #fef0f6; border-color: #f4a7c7; }
+  .detail-card.type-meeting  { background: #fefce8; border-color: #f5de6e; }
+  .detail-card.type-deadline { background: #fef0f0; border-color: #f5a8a8; }
+  .detail-card.type-task     { background: #f5f5f5; border-color: #c0c0c0; }
+  .detail-card.type-etc      { background: #f7eefe; border-color: #c9a3e8; }
+  .detail-type-badge {
+    font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+    white-space: nowrap; flex-shrink: 0; margin-top: 2px;
+  }
+  .type-general  .detail-type-badge { background: #fde8f0; color: #9d3a6a; }
+  .type-meeting  .detail-type-badge { background: #fef9d7; color: #8a6e00; }
+  .type-deadline .detail-type-badge { background: #fde8e8; color: #a83232; }
+  .type-task     .detail-type-badge { background: #ebebeb; color: #555555; }
+  .type-etc      .detail-type-badge { background: #eedefa; color: #6b3a9b; }
+  .detail-info { flex: 1; }
+  .detail-title { font-size: 0.95rem; font-weight: 600; color: #1f2937; margin-bottom: 4px; }
+  .detail-time  { font-size: 0.82rem; color: #6b7280; }
+  .detail-date  { font-size: 0.78rem; color: #9ca3af; margin-top: 2px; }
+
+  /* ── 수정/추가 모달 ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45); z-index: 500;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: white; border-radius: 16px;
+    padding: 32px 36px; width: 480px; max-width: 95vw;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.22);
+    animation: modalIn 0.2s ease;
+  }
+  @keyframes modalIn { from { opacity:0; transform: translateY(20px); } to { opacity:1; transform: translateY(0); } }
+  .modal h3 { font-size: 1.2rem; color: #1e3a5f; margin-bottom: 22px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px; }
+  .form-group input, .form-group select {
+    width: 100%; padding: 9px 12px; border: 1px solid #d1d5db;
+    border-radius: 8px; font-size: 0.92rem; font-family: inherit;
+    transition: border-color 0.2s; outline: none;
+  }
+  .form-group input:focus, .form-group select:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #dbeafe; }
+  .modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+  .modal-btns button {
+    padding: 9px 24px; border-radius: 8px; font-size: 0.92rem;
+    cursor: pointer; font-family: inherit; transition: all 0.15s; border: none;
+  }
+  .btn-cancel  { background: #f3f4f6; color: #374151; }
+  .btn-cancel:hover  { background: #e5e7eb; }
+  .btn-save    { background: #2563eb; color: white; }
+  .btn-save:hover    { background: #1d4ed8; }
+  .btn-delete  { background: #fee2e2; color: #b91c1c; margin-right: auto; }
+  .btn-delete:hover  { background: #fecaca; }
+
+  /* 범례 */
+  .legend { display: flex; gap: 20px; padding: 12px 28px; background: white; border-top: 1px solid #e5e7eb; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: #4b5563; }
+  .legend-dot  { width: 12px; height: 12px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ── 비밀번호 ── -->
+<div id="lock-screen">
+  <h1>🔒 업무 스케줄</h1>
+  <p class="subtitle">비밀번호를 입력하세요</p>
+  <div class="pin-box">
+    <div class="pin-dots">
+      <div class="pin-dot" id="d0"></div><div class="pin-dot" id="d1"></div>
+      <div class="pin-dot" id="d2"></div><div class="pin-dot" id="d3"></div>
+    </div>
+    <div class="numpad">
+      <button onclick="pinInput('1')">1</button><button onclick="pinInput('2')">2</button><button onclick="pinInput('3')">3</button>
+      <button onclick="pinInput('4')">4</button><button onclick="pinInput('5')">5</button><button onclick="pinInput('6')">6</button>
+      <button onclick="pinInput('7')">7</button><button onclick="pinInput('8')">8</button><button onclick="pinInput('9')">9</button>
+      <button style="visibility:hidden"></button><button onclick="pinInput('0')">0</button>
+      <button class="del" onclick="pinDel()">⌫</button>
+    </div>
+    <div class="error-msg" id="pin-error"></div>
+  </div>
+</div>
+
+<!-- ── 앱 ── -->
+<div id="app">
+  <header>
+    <h1>📅 업무 스케줄 캘린더</h1>
+    <div class="header-btns">
+      <button class="today-btn" onclick="goToday()">오늘</button>
+      <button class="add-btn"   onclick="openModal(null)">+ 일정 추가</button>
+    </div>
+  </header>
+
+  <div class="cal-wrapper">
+    <div class="cal-nav">
+      <button onclick="changeMonth(-1)">‹</button>
+      <h2 id="month-title"></h2>
+      <button onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="cal-grid">
+      <div class="cal-header-row">
+        <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+      </div>
+      <div class="cal-body" id="cal-body"></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#f4a7c7"></div>교육</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f5de6e"></div>미팅</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f5a8a8"></div>마감</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c0c0c0"></div>업무</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c9a3e8"></div>기타</div>
+  </div>
+</div>
+
+<!-- ── 하단 상세 패널 ── -->
+<div id="detail-bar">
+  <div class="detail-bar-header">
+    <h3 id="detail-bar-title">일정 상세</h3>
+    <button class="close-btn" onclick="closeDetail()">✕</button>
+  </div>
+  <div class="detail-bar-body">
+    <div class="detail-card" id="detail-card"></div>
+    <div class="detail-bar-btns">
+      <button id="done-btn" onclick="clickDone()">✓ 완료</button>
+      <button id="edit-btn" onclick="openModal('edit')">✏️ 수정</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 수정/추가 모달 ── -->
+<div class="modal-overlay" id="modal-overlay" onclick="onOverlayClick(event)">
+  <div class="modal" id="modal">
+    <h3 id="modal-title">일정 추가</h3>
+    <div class="form-group">
+      <label>날짜</label>
+      <input type="date" id="f-date">
+    </div>
+    <div class="form-group">
+      <label>시간 (예: 09:00-11:00, 선택)</label>
+      <input type="text" id="f-time" placeholder="예: 14:00-17:00">
+    </div>
+    <div class="form-group">
+      <label>일정 제목</label>
+      <input type="text" id="f-title" placeholder="일정 내용을 입력하세요">
+    </div>
+    <div class="form-group">
+      <label>분류</label>
+      <select id="f-type">
+        <option value="general">교육</option>
+        <option value="meeting">미팅</option>
+        <option value="task">업무</option>
+        <option value="deadline">마감</option>
+        <option value="etc">기타</option>
+      </select>
+    </div>
+    <div class="modal-btns">
+      <button class="btn-delete" id="btn-delete" onclick="deleteEvent()" style="display:none">🗑 삭제</button>
+      <button class="btn-cancel" onclick="closeModal()">취소</button>
+      <button class="btn-save"   onclick="saveEvent()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PASSWORD = '0303';
+const STORAGE_KEY = 'schedule_events_v3';
+
+// ── 공휴일 데이터 ──
+const HOLIDAYS = {
+  '2026-01-01': '신정',
+  '2026-01-28': '설날 연휴',
+  '2026-01-29': '설날',
+  '2026-01-30': '설날 연휴',
+  '2026-03-01': '삼일절',
+  '2026-05-05': '어린이날',
+  '2026-05-25': '부처님오신날',
+  '2026-06-03': '지방선거일',
+  '2026-06-06': '현충일',
+  '2026-08-15': '광복절',
+  '2026-09-24': '추석 연휴',
+  '2026-09-25': '추석',
+  '2026-09-26': '추석 연휴',
+  '2026-10-03': '개천절',
+  '2026-10-09': '한글날',
+  '2026-12-25': '크리스마스',
+};
+
+// ── 반차/연차 데이터 ──
+const LEAVES = {
+  '2026-06-04': '오전반차',
+  '2026-06-05': '오후반차',
+};
+
+const TYPE_ORDER = { general:0, meeting:1, task:2, deadline:3, etc:4 };
+const TYPE_LABEL = { general:'교육', meeting:'미팅', task:'업무', deadline:'마감', etc:'기타' };
+
+// ── 기본 일정 데이터 ──
+const DEFAULT_EVENTS = [
+  // 교육
+  { id:'e1', date:'2026-06-16', time:'14:00-17:00', title:'HDC 감정톡톡힐링 (3H)',                      type:'general' },
+  { id:'e2', date:'2026-06-17', time:'16:00-18:00', title:'JJI3 공감 커뮤니케이션, 감정톡톡힐링 (2H)', type:'general' },
+  // 업무
+  { id:'e3', date:'2026-06-15', time:'',            title:'HDC 센터 컨택 및 교재 발송',                type:'task' },
+  { id:'e4', date:'2026-06-16', time:'',            title:'JJI3센터 컨택 및 교재 발송',               type:'task' },
+  { id:'e5', date:'2026-06-09', time:'',            title:'교육 일정 확정 메일 발송',                  type:'task' },
+  { id:'e6', date:'2026-06-02', time:'',            title:'경비 상신',                                type:'task' },
+  { id:'e7', date:'2026-06-01', time:'',            title:'교육 관리 시스템 개발 완료 및 배포',        type:'task' },
+  { id:'e8', date:'2026-06-02', time:'',            title:'7월 특강 주제 선정',                       type:'task' },
+  { id:'e9', date:'2026-06-02', time:'',            title:'불만 고객 응대 심화과정 개발',             type:'task' },
+];
+
+// localStorage에서 불러오거나 기본값 사용
+function loadEvents() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : DEFAULT_EVENTS.map(e => ({...e}));
+  } catch { return DEFAULT_EVENTS.map(e => ({...e})); }
+}
+function saveEvents() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(EVENTS));
+}
+
+let EVENTS = loadEvents();
+
+function genId() { return 'ev_' + Date.now() + '_' + Math.floor(Math.random()*9999); }
+
+// ── 비밀번호 ──
+let pinValue = '';
+function pinInput(n) {
+  if (pinValue.length >= 4) return;
+  pinValue += n; updateDots();
+  if (pinValue.length === 4) setTimeout(checkPin, 150);
+}
+function pinDel() { pinValue = pinValue.slice(0,-1); updateDots(); document.getElementById('pin-error').textContent = ''; }
+function updateDots() {
+  for (let i=0;i<4;i++) {
+    const d = document.getElementById('d'+i);
+    d.classList.toggle('filled', i < pinValue.length);
+    d.classList.remove('error');
+  }
+}
+function checkPin() {
+  if (pinValue === PASSWORD) {
+    document.getElementById('lock-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    renderCalendar();
+  } else {
+    for (let i=0;i<4;i++) document.getElementById('d'+i).classList.add('error');
+    document.getElementById('pin-error').textContent = '비밀번호가 틀렸습니다';
+    setTimeout(() => { pinValue=''; updateDots(); }, 800);
+  }
+}
+
+// ── 캘린더 ──
+const today = new Date();
+let curYear = today.getFullYear(), curMonth = today.getMonth();
+
+function changeMonth(d) {
+  curMonth += d;
+  if (curMonth>11){curMonth=0;curYear++;} if (curMonth<0){curMonth=11;curYear--;}
+  closeDetail(); renderCalendar();
+}
+function goToday() { curYear=today.getFullYear(); curMonth=today.getMonth(); closeDetail(); renderCalendar(); }
+
+function sortEvents(evs) {
+  return evs.slice().sort((a,b) => {
+    const tA = TYPE_ORDER[a.type]??99, tB = TYPE_ORDER[b.type]??99;
+    return tA!==tB ? tA-tB : (a.time||'').localeCompare(b.time||'');
+  });
+}
+
+function renderCalendar() {
+  document.getElementById('month-title').textContent = `${curYear}년 ${curMonth+1}월`;
+  const firstDay=new Date(curYear,curMonth,1).getDay();
+  const lastDate=new Date(curYear,curMonth+1,0).getDate();
+  const prevLast=new Date(curYear,curMonth,0).getDate();
+  const total=Math.ceil((firstDay+lastDate)/7)*7;
+  const body=document.getElementById('cal-body');
+  body.innerHTML='';
+
+  for (let i=0;i<total;i++) {
+    const cell=document.createElement('div');
+    cell.className='cal-day';
+    let cY=curYear,cM=curMonth,cD;
+    if (i<firstDay) { cD=prevLast-firstDay+1+i; cM=curMonth-1; if(cM<0){cM=11;cY--;} cell.classList.add('other-month'); }
+    else if (i-firstDay<lastDate) { cD=i-firstDay+1; }
+    else { cD=i-firstDay-lastDate+1; cM=curMonth+1; if(cM>11){cM=0;cY++;} cell.classList.add('other-month'); }
+
+    const dow=new Date(cY,cM,cD).getDay();
+    if (dow===0) cell.classList.add('sun');
+    if (dow===6) cell.classList.add('sat');
+    if (cY===today.getFullYear()&&cM===today.getMonth()&&cD===today.getDate()) cell.classList.add('today');
+
+    const dateStr=`${cY}-${String(cM+1).padStart(2,'0')}-${String(cD).padStart(2,'0')}`;
+
+    const numRow=document.createElement('div');
+    numRow.className='day-num-row';
+    const numEl=document.createElement('div');
+    numEl.className='day-num'; numEl.textContent=cD;
+    numRow.appendChild(numEl);
+    if (LEAVES[dateStr]) {
+      const tag=document.createElement('span');
+      tag.className='leave-tag'; tag.textContent=LEAVES[dateStr];
+      numRow.appendChild(tag);
+    }
+    cell.appendChild(numRow);
+
+    if (HOLIDAYS[dateStr]) {
+      cell.classList.add('is-holiday');
+      const hl=document.createElement('div');
+      hl.className='holiday-label'; hl.textContent=HOLIDAYS[dateStr];
+      cell.appendChild(hl);
+    }
+
+    sortEvents(EVENTS.filter(e=>e.date===dateStr)).forEach(ev => {
+      const chip=document.createElement('div');
+      chip.className=`event-chip type-${ev.type||'general'}`;
+      chip.textContent=(ev.time?ev.time+' ':'')+ev.title;
+      chip.title=ev.title;
+      if (ev.done) chip.classList.add('done');
+      chip.addEventListener('click',e=>{ e.stopPropagation(); onChipClick(chip,ev,dateStr); });
+      cell.appendChild(chip);
+    });
+    body.appendChild(cell);
+  }
+}
+
+// ── 하단 상세 패널 ──
+let selectedChip=null, selectedEvent=null;
+
+function onChipClick(chip,ev,dateStr) {
+  if (selectedChip===chip) { closeDetail(); return; }
+  if (selectedChip) selectedChip.classList.remove('selected');
+  selectedChip=chip; selectedEvent=ev;
+  chip.classList.add('selected');
+
+  const [y,m,d]=dateStr.split('-');
+  const days=['일','월','화','수','목','금','토'];
+  const dow=new Date(+y,+m-1,+d).getDay();
+  document.getElementById('detail-bar-title').textContent=
+    `${+y}년 ${+m}월 ${+d}일 (${days[dow]}) — ${TYPE_LABEL[ev.type]||'일정'} 상세`;
+
+  updateDetailPanel(ev, y, m, d, days[dow]);
+  document.getElementById('detail-bar').classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-bar').classList.remove('open');
+  if (selectedChip) { selectedChip.classList.remove('selected'); selectedChip=null; }
+  selectedEvent=null;
+}
+
+// ── 모달 ──
+let editMode=false; // 'add' | 'edit'
+
+function openModal(mode) {
+  editMode = mode;
+  const isEdit = mode==='edit' && selectedEvent;
+  document.getElementById('modal-title').textContent = isEdit ? '일정 수정' : '일정 추가';
+  document.getElementById('btn-delete').style.display = isEdit ? 'block' : 'none';
+
+  if (isEdit) {
+    document.getElementById('f-date').value  = selectedEvent.date;
+    document.getElementById('f-time').value  = selectedEvent.time||'';
+    document.getElementById('f-title').value = selectedEvent.title;
+    document.getElementById('f-type').value  = selectedEvent.type||'general';
+  } else {
+    const defDate = `${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    document.getElementById('f-date').value  = defDate;
+    document.getElementById('f-time').value  = '';
+    document.getElementById('f-title').value = '';
+    document.getElementById('f-type').value  = 'task';
+  }
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
+function onOverlayClick(e) { if (e.target===document.getElementById('modal-overlay')) closeModal(); }
+
+function saveEvent() {
+  const date  = document.getElementById('f-date').value.trim();
+  const time  = document.getElementById('f-time').value.trim();
+  const title = document.getElementById('f-title').value.trim();
+  const type  = document.getElementById('f-type').value;
+
+  if (!date)  { alert('날짜를 입력해 주세요.'); return; }
+  if (!title) { alert('일정 제목을 입력해 주세요.'); return; }
+
+  if (editMode==='edit' && selectedEvent) {
+    const idx = EVENTS.findIndex(e=>e.id===selectedEvent.id);
+    if (idx!==-1) { EVENTS[idx] = { ...EVENTS[idx], date, time, title, type }; selectedEvent=EVENTS[idx]; }
+  } else {
+    EVENTS.push({ id:genId(), date, time, title, type });
+  }
+  saveEvents();
+  closeModal();
+  closeDetail();
+  renderCalendar();
+}
+
+function toggleDone(id) {
+  const ev = EVENTS.find(e=>e.id===id);
+  if (ev) { ev.done = !ev.done; saveEvents(); return ev.done; }
+}
+
+function updateDetailPanel(ev, y, m, d, dowStr) {
+  const isDone = !!ev.done;
+  const card = document.getElementById('detail-card');
+  card.className = `detail-card type-${ev.type||'general'}`;
+  card.innerHTML = `
+    <div class="detail-type-badge">${TYPE_LABEL[ev.type]||ev.type}</div>
+    <div class="detail-info">
+      <div class="detail-title" style="${isDone?'text-decoration:line-through;color:#aaa;':''}">${ev.title}</div>
+      <div class="detail-time">${ev.time?'⏰ '+ev.time:'⏰ 종일'}</div>
+      <div class="detail-date">📅 ${+y}년 ${+m}월 ${+d}일 (${dowStr})</div>
+    </div>`;
+  const doneBtn = document.getElementById('done-btn');
+  doneBtn.textContent = isDone ? '↩ 완료 취소' : '✓ 완료';
+  doneBtn.classList.toggle('is-done', isDone);
+}
+
+function clickDone() {
+  if (!selectedEvent) return;
+  toggleDone(selectedEvent.id);
+  const [y,m,d] = selectedEvent.date.split('-');
+  const days = ['일','월','화','수','목','금','토'];
+  const dow = new Date(+y,+m-1,+d).getDay();
+  updateDetailPanel(selectedEvent, y, m, d, days[dow]);
+  renderCalendar();
+}
+
+function deleteEvent() {
+  if (!selectedEvent) return;
+  if (!confirm(`"${selectedEvent.title}" 일정을 삭제하시겠습니까?`)) return;
+  EVENTS = EVENTS.filter(e=>e.id!==selectedEvent.id);
+  saveEvents();
+  closeModal();
+  closeDetail();
+  renderCalendar();
+}
+
+// 빈 곳 클릭 시 닫기
+document.addEventListener('click', e => {
+  const bar=document.getElementById('detail-bar');
+  if (bar.classList.contains('open')&&!bar.contains(e.target)&&!e.target.classList.contains('event-chip'))
+    closeDetail();
+});
+document.addEventListener('keydown', e => {
+  if (document.getElementById('lock-screen').style.display!=='none') {
+    if (e.key>='0'&&e.key<='9') pinInput(e.key);
+    if (e.key==='Backspace') pinDel();
+  }
+  if (e.key==='Escape') { closeDetail(); closeModal(); }
+});
+</script>
+</body>
+</html>
