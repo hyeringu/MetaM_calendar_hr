@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>업무 스케줄 캘린더</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -54,23 +55,62 @@
   }
   header h1 { font-size: 1.5rem; letter-spacing: 2px; }
   .header-btns { display: flex; gap: 10px; }
-  .today-btn, .add-btn {
+  .today-btn, .add-btn, .excel-btn {
     border: 1px solid rgba(255,255,255,0.3); color: white;
     padding: 8px 20px; border-radius: 20px; cursor: pointer;
     font-size: 0.9rem; transition: background 0.2s; font-family: inherit;
   }
   .today-btn { background: rgba(255,255,255,0.15); }
   .add-btn   { background: rgba(255,255,255,0.25); }
+  .excel-btn { background: rgba(255,220,100,0.35); }
   .today-btn:hover { background: rgba(255,255,255,0.28); }
   .add-btn:hover   { background: rgba(255,255,255,0.38); }
+  .excel-btn:hover { background: rgba(255,220,100,0.55); }
+
+  /* ── 엑셀 업로드 모달 ── */
+  #excel-modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5); z-index: 600;
+    align-items: center; justify-content: center;
+  }
+  #excel-modal-overlay.open { display: flex; }
+  #excel-modal {
+    background: white; border-radius: 16px;
+    width: 760px; max-width: 96vw; max-height: 88vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+    animation: modalIn 0.2s ease;
+  }
+  .excel-modal-header {
+    background: linear-gradient(90deg,#1e3a5f,#2563eb);
+    color: white; padding: 16px 24px; border-radius: 16px 16px 0 0;
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .excel-modal-header h3 { font-size: 1.05rem; }
+  .excel-modal-header button { background:none;border:none;color:white;font-size:1.3rem;cursor:pointer; }
+  .excel-modal-body { flex:1; overflow-y:auto; padding: 20px 24px; }
+  .excel-filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .excel-filter-row label { font-size:0.85rem; font-weight:600; color:#374151; }
+  .excel-filter-row input { padding: 7px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:0.88rem; font-family:inherit; outline:none; flex:1; min-width:140px; }
+  .excel-filter-row input:focus { border-color:#2563eb; box-shadow:0 0 0 3px #dbeafe; }
+  .excel-filter-row select { padding: 7px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:0.88rem; font-family:inherit; outline:none; }
+  .excel-preview-table { width:100%; border-collapse:collapse; font-size:0.82rem; }
+  .excel-preview-table th { background:#1e3a5f; color:white; padding:8px 10px; text-align:left; white-space:nowrap; }
+  .excel-preview-table td { padding:7px 10px; border-bottom:1px solid #e5e7eb; vertical-align:middle; }
+  .excel-preview-table tr:hover td { background:#f8faff; }
+  .excel-preview-table input[type=checkbox] { width:16px;height:16px;cursor:pointer; }
+  .excel-info { font-size:0.82rem; color:#6b7280; margin-bottom:10px; }
+  .excel-modal-footer { padding:14px 24px; border-top:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
+  .excel-modal-footer span { font-size:0.85rem; color:#6b7280; }
+  .excel-modal-footer .btn-group { display:flex; gap:10px; }
+  .btn-select-all { background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:7px 16px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:0.85rem; }
+  .btn-import { background:#2563eb;color:white;border:none;padding:8px 22px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:0.9rem;font-weight:600; }
+  .btn-import:hover { background:#1d4ed8; }
+  .no-data { text-align:center; color:#9ca3af; padding:30px 0; font-size:0.9rem; }
 
   .cal-wrapper { padding: 20px 28px 0; max-width: 1400px; width: 100%; margin: 0 auto; }
   .cal-nav { display: flex; align-items: center; justify-content: center; gap: 24px; margin-bottom: 16px; }
-  .cal-nav button {
-    width: 40px; height: 40px; border-radius: 50%; border: none;
-    background: #2563eb; color: white; font-size: 1.2rem; cursor: pointer; transition: background 0.2s;
-    display: flex; align-items: center; justify-content: center;
-  }
+  .cal-nav button { width: 40px; height: 40px; border-radius: 50%; border: none; background: #2563eb; color: white; font-size: 1.2rem; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; justify-content: center; }
   .cal-nav button:hover { background: #1d4ed8; }
   .cal-nav h2 { font-size: 1.8rem; font-weight: 700; color: #1e3a5f; min-width: 200px; text-align: center; }
 
@@ -80,63 +120,27 @@
   .cal-header-row div:first-child { color: #fca5a5; }
   .cal-header-row div:last-child  { color: #93c5fd; }
 
-  .cal-body {
-    display: grid; grid-template-columns: repeat(7, 1fr);
-    grid-auto-rows: 130px;
-    border-left: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb;
-  }
-  .cal-day {
-    border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb;
-    padding: 6px; overflow: hidden; position: relative; transition: background 0.15s;
-  }
+  .cal-body { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 130px; border-left: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; }
+  .cal-day { border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; padding: 6px; overflow: hidden; position: relative; transition: background 0.15s; }
   .cal-day:hover { background: #f8faff; }
   .cal-day.other-month { background: #f9fafb; }
   .cal-day.other-month .day-num { color: #d1d5db; }
   .cal-day.today { background: #eff6ff; }
   .cal-day.today .day-num { background: #2563eb; color: white; border-radius: 50%; }
-  .day-num-row {
-    display: flex; align-items: center; gap: 4px; margin-bottom: 3px;
-  }
-  .day-num {
-    font-size: 0.9rem; font-weight: 600; color: #374151;
-    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .leave-tag {
-    font-size: 0.65rem; color: #b0b0b0; font-weight: 500;
-    background: #f0f0f0; border-radius: 4px; padding: 1px 5px;
-    white-space: nowrap;
-  }
+  .day-num-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+  .day-num { font-size: 0.9rem; font-weight: 600; color: #374151; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .leave-tag { font-size: 0.65rem; color: #b0b0b0; font-weight: 500; background: #f0f0f0; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
   .cal-day.sun .day-num { color: #dc2626; }
   .cal-day.sun.today .day-num { background: #dc2626; color: white; }
   .cal-day.sat .day-num { color: #2563eb; }
-
-  .event-chip {
-    border-left: 3px solid #2563eb; border-radius: 4px;
-    padding: 2px 6px; font-size: 0.74rem; margin-bottom: 2px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    cursor: pointer; transition: filter 0.15s;
-    background: #dbeafe; color: #1d4ed8;
-  }
-  .holiday-label {
-    font-size: 0.7rem; font-weight: 600;
-    color: #e53e3e;
-    margin-bottom: 2px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
+  .holiday-label { font-size: 0.7rem; font-weight: 600; color: #e53e3e; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cal-day.is-holiday .day-num { color: #e53e3e; }
   .cal-day.is-holiday.today .day-num { background: #e53e3e; color: white; }
 
+  .event-chip { border-left: 3px solid #2563eb; border-radius: 4px; padding: 2px 6px; font-size: 0.74rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: filter 0.15s; user-select: none; background: transparent; color: #1d4ed8; }
   .event-chip:hover   { filter: brightness(0.92); }
-  .event-chip { user-select: none; }
   .event-chip.selected { outline: 2px solid #1e40af; outline-offset: 1px; filter: brightness(0.88); }
-  .event-chip.done {
-    text-decoration: line-through;
-    background: #e8e8e8 !important;
-    color: #999 !important;
-    border-left-color: #bbb !important;
-    border-color: #d0d0d0 !important;
-    opacity: 0.75;
-  }
+  .event-chip.done { text-decoration: line-through; background: #e8e8e8 !important; color: #999 !important; border-left-color: #bbb !important; border-color: #d0d0d0 !important; opacity: 0.75; }
   .event-chip.type-general  { background: transparent; color: #9d3a6a; border: 1px solid #f4a7c7; border-left: 3px solid #f4a7c7; }
   .event-chip.type-meeting  { background: transparent; color: #8a6e00; border: 1px solid #f5de6e; border-left: 3px solid #f5de6e; }
   .event-chip.type-deadline { background: transparent; color: #a83232; border: 1px solid #f5a8a8; border-left: 3px solid #f5a8a8; }
@@ -144,36 +148,15 @@
   .event-chip.type-etc      { background: transparent; color: #6b3a9b; border: 1px solid #c9a3e8; border-left: 3px solid #c9a3e8; }
 
   /* ── 하단 상세 패널 ── */
-  #detail-bar {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: white; border-top: 3px solid #2563eb;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-    transform: translateY(100%); transition: transform 0.3s ease;
-    z-index: 200;
-  }
+  #detail-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 3px solid #2563eb; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); transform: translateY(100%); transition: transform 0.3s ease; z-index: 200; }
   #detail-bar.open { transform: translateY(0); }
-  .detail-bar-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 24px;
-    background: linear-gradient(90deg, #1e3a5f, #2563eb);
-    color: white;
-  }
+  .detail-bar-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; background: linear-gradient(90deg, #1e3a5f, #2563eb); color: white; }
   .detail-bar-header h3 { font-size: 1rem; }
-  .detail-bar-header .close-btn {
-    background: none; border: none; color: white;
-    font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 0 4px;
-  }
-  .detail-bar-body {
-    padding: 14px 24px;
-    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
-  }
+  .detail-bar-header .close-btn { background: none; border: none; color: white; font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 0 4px; }
+  .detail-bar-body { padding: 14px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
   .detail-bar-body .detail-card { flex: 1; min-width: 260px; }
   .detail-bar-btns { display: flex; gap: 10px; flex-shrink: 0; }
-  .detail-bar-btns button {
-    padding: 10px 22px; border-radius: 10px; font-size: 0.9rem;
-    font-weight: 600; cursor: pointer; border: none; font-family: inherit;
-    transition: all 0.2s;
-  }
+  .detail-bar-btns button { padding: 10px 22px; border-radius: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all 0.2s; }
   #done-btn        { background: #e2e8f0; color: #374151; }
   #done-btn:hover  { background: #cbd5e1; }
   #done-btn.is-done        { background: #86efac; color: #14532d; }
@@ -181,20 +164,13 @@
   #edit-btn        { background: #dbeafe; color: #1d4ed8; }
   #edit-btn:hover  { background: #bfdbfe; }
 
-  .detail-card {
-    display: flex; align-items: flex-start; gap: 12px;
-    padding: 12px 16px; border-radius: 10px; border: 1px solid #e5e7eb;
-    min-width: 260px; flex: 1; max-width: 500px;
-  }
+  .detail-card { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-radius: 10px; border: 1px solid #e5e7eb; min-width: 260px; flex: 1; max-width: 500px; }
   .detail-card.type-general  { background: #fef0f6; border-color: #f4a7c7; }
   .detail-card.type-meeting  { background: #fefce8; border-color: #f5de6e; }
   .detail-card.type-deadline { background: #fef0f0; border-color: #f5a8a8; }
   .detail-card.type-task     { background: #f5f5f5; border-color: #c0c0c0; }
   .detail-card.type-etc      { background: #f7eefe; border-color: #c9a3e8; }
-  .detail-type-badge {
-    font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
-    white-space: nowrap; flex-shrink: 0; margin-top: 2px;
-  }
+  .detail-type-badge { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
   .type-general  .detail-type-badge { background: #fde8f0; color: #9d3a6a; }
   .type-meeting  .detail-type-badge { background: #fef9d7; color: #8a6e00; }
   .type-deadline .detail-type-badge { background: #fde8e8; color: #a83232; }
@@ -206,33 +182,17 @@
   .detail-date  { font-size: 0.78rem; color: #9ca3af; margin-top: 2px; }
 
   /* ── 수정/추가 모달 ── */
-  .modal-overlay {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,0.45); z-index: 500;
-    align-items: center; justify-content: center;
-  }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 500; align-items: center; justify-content: center; }
   .modal-overlay.open { display: flex; }
-  .modal {
-    background: white; border-radius: 16px;
-    padding: 32px 36px; width: 480px; max-width: 95vw;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.22);
-    animation: modalIn 0.2s ease;
-  }
+  .modal { background: white; border-radius: 16px; padding: 32px 36px; width: 480px; max-width: 95vw; box-shadow: 0 8px 40px rgba(0,0,0,0.22); animation: modalIn 0.2s ease; }
   @keyframes modalIn { from { opacity:0; transform: translateY(20px); } to { opacity:1; transform: translateY(0); } }
   .modal h3 { font-size: 1.2rem; color: #1e3a5f; margin-bottom: 22px; }
   .form-group { margin-bottom: 16px; }
   .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 6px; }
-  .form-group input, .form-group select {
-    width: 100%; padding: 9px 12px; border: 1px solid #d1d5db;
-    border-radius: 8px; font-size: 0.92rem; font-family: inherit;
-    transition: border-color 0.2s; outline: none;
-  }
+  .form-group input, .form-group select { width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.92rem; font-family: inherit; transition: border-color 0.2s; outline: none; }
   .form-group input:focus, .form-group select:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #dbeafe; }
   .modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
-  .modal-btns button {
-    padding: 9px 24px; border-radius: 8px; font-size: 0.92rem;
-    cursor: pointer; font-family: inherit; transition: all 0.15s; border: none;
-  }
+  .modal-btns button { padding: 9px 24px; border-radius: 8px; font-size: 0.92rem; cursor: pointer; font-family: inherit; transition: all 0.15s; border: none; }
   .btn-cancel  { background: #f3f4f6; color: #374151; }
   .btn-cancel:hover  { background: #e5e7eb; }
   .btn-save    { background: #2563eb; color: white; }
@@ -240,7 +200,6 @@
   .btn-delete  { background: #fee2e2; color: #b91c1c; margin-right: auto; }
   .btn-delete:hover  { background: #fecaca; }
 
-  /* 범례 */
   .legend { display: flex; gap: 20px; padding: 12px 28px; background: white; border-top: 1px solid #e5e7eb; flex-wrap: wrap; }
   .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: #4b5563; }
   .legend-dot  { width: 12px; height: 12px; border-radius: 2px; }
@@ -275,6 +234,8 @@
     <div class="header-btns">
       <button class="today-btn" onclick="goToday()">오늘</button>
       <button class="add-btn"   onclick="openModal(null)">+ 일정 추가</button>
+      <button class="excel-btn" onclick="document.getElementById('excel-file-input').click()">📂 엑셀 업로드</button>
+      <input type="file" id="excel-file-input" accept=".xlsx,.xls" style="display:none" onchange="handleExcelUpload(event)">
     </div>
   </header>
 
@@ -312,6 +273,39 @@
     <div class="detail-bar-btns">
       <button id="done-btn" onclick="clickDone()">✓ 완료</button>
       <button id="edit-btn" onclick="openModal('edit')">✏️ 수정</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 엑셀 업로드 모달 ── -->
+<div id="excel-modal-overlay">
+  <div id="excel-modal">
+    <div class="excel-modal-header">
+      <h3>📂 엑셀 일정 가져오기</h3>
+      <button onclick="closeExcelModal()">✕</button>
+    </div>
+    <div class="excel-modal-body">
+      <div class="excel-filter-row">
+        <label>강사 이름 필터:</label>
+        <input type="text" id="excel-name-filter" placeholder="예: 구혜린 (비워두면 전체)" oninput="applyExcelFilter()">
+        <label>분류:</label>
+        <select id="excel-type-select">
+          <option value="general">교육</option>
+          <option value="meeting">미팅</option>
+          <option value="task">업무</option>
+          <option value="deadline">마감</option>
+          <option value="etc">기타</option>
+        </select>
+      </div>
+      <div class="excel-info" id="excel-info"></div>
+      <div id="excel-preview-wrap"></div>
+    </div>
+    <div class="excel-modal-footer">
+      <span id="excel-selected-count">0개 선택됨</span>
+      <div class="btn-group">
+        <button class="btn-select-all" onclick="toggleSelectAll()">전체 선택</button>
+        <button class="btn-import" onclick="importSelectedEvents()">캘린더에 추가</button>
+      </div>
     </div>
   </div>
 </div>
@@ -354,293 +348,208 @@
 const PASSWORD = '0303';
 const STORAGE_KEY = 'schedule_events_v3';
 
-// ── 공휴일 데이터 ──
 const HOLIDAYS = {
-  '2026-01-01': '신정',
-  '2026-01-28': '설날 연휴',
-  '2026-01-29': '설날',
-  '2026-01-30': '설날 연휴',
-  '2026-03-01': '삼일절',
-  '2026-05-05': '어린이날',
-  '2026-05-25': '부처님오신날',
-  '2026-06-03': '지방선거일',
-  '2026-06-06': '현충일',
-  '2026-08-15': '광복절',
-  '2026-09-24': '추석 연휴',
-  '2026-09-25': '추석',
-  '2026-09-26': '추석 연휴',
-  '2026-10-03': '개천절',
-  '2026-10-09': '한글날',
-  '2026-12-25': '크리스마스',
+  '2026-01-01':'신정','2026-01-28':'설날 연휴','2026-01-29':'설날','2026-01-30':'설날 연휴',
+  '2026-03-01':'삼일절','2026-05-05':'어린이날','2026-05-25':'부처님오신날',
+  '2026-06-03':'지방선거일','2026-06-06':'현충일','2026-08-15':'광복절',
+  '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
+  '2026-10-03':'개천절','2026-10-09':'한글날','2026-12-25':'크리스마스',
 };
+const LEAVES = { '2026-06-04':'오전반차','2026-06-05':'오후반차' };
+const TYPE_ORDER = { general:0,meeting:1,task:2,deadline:3,etc:4 };
+const TYPE_LABEL = { general:'교육',meeting:'미팅',task:'업무',deadline:'마감',etc:'기타' };
 
-// ── 반차/연차 데이터 ──
-const LEAVES = {
-  '2026-06-04': '오전반차',
-  '2026-06-05': '오후반차',
-};
-
-const TYPE_ORDER = { general:0, meeting:1, task:2, deadline:3, etc:4 };
-const TYPE_LABEL = { general:'교육', meeting:'미팅', task:'업무', deadline:'마감', etc:'기타' };
-
-// ── 기본 일정 데이터 ──
 const DEFAULT_EVENTS = [
-  // 교육
-  { id:'e1', date:'2026-06-16', time:'14:00-17:00', title:'HDC 감정톡톡힐링 (3H)',                      type:'general' },
-  { id:'e2', date:'2026-06-17', time:'16:00-18:00', title:'JJI3 공감 커뮤니케이션, 감정톡톡힐링 (2H)', type:'general' },
-  // 업무
-  { id:'e3', date:'2026-06-15', time:'',            title:'HDC 센터 컨택 및 교재 발송',                type:'task' },
-  { id:'e4', date:'2026-06-16', time:'',            title:'JJI3센터 컨택 및 교재 발송',               type:'task' },
-  { id:'e5', date:'2026-06-09', time:'',            title:'교육 일정 확정 메일 발송',                  type:'task' },
-  { id:'e6', date:'2026-06-02', time:'',            title:'경비 상신',                                type:'task' },
-  { id:'e7', date:'2026-06-01', time:'',            title:'교육 관리 시스템 개발 완료 및 배포',        type:'task' },
-  { id:'e8', date:'2026-06-02', time:'',            title:'7월 특강 주제 선정',                       type:'task' },
-  { id:'e9', date:'2026-06-02', time:'',            title:'불만 고객 응대 심화과정 개발',             type:'task' },
+  { id:'e1',  date:'2026-06-16', time:'14:00-17:00', title:'HDC 감정톡톡힐링 (3H)',                      type:'general' },
+  { id:'e2',  date:'2026-06-17', time:'16:00-18:00', title:'JJI3 공감 커뮤니케이션, 감정톡톡힐링 (2H)', type:'general' },
+  { id:'e10', date:'2026-06-12', time:'14:00-15:00', title:'HDC 감정 톡톡 힐링 (1H)',                   type:'general' },
+  { id:'e11', date:'2026-06-12', time:'15:00-16:00', title:'HDC 감정 톡톡 힐링 (1H)',                   type:'general' },
+  { id:'e12', date:'2026-06-16', time:'16:00-17:00', title:'MGI 고객 응대 기본 스킬 (1H)',               type:'general' },
+  { id:'e13', date:'2026-06-17', time:'16:00-17:00', title:'JJI3 공감 커뮤니케이션 (1H)',                type:'general' },
+  { id:'e14', date:'2026-06-17', time:'17:00-18:00', title:'JJI3 감정 톡톡 힐링 (1H)',                   type:'general' },
+  { id:'e15', date:'2026-06-18', time:'10:00-11:00', title:'HGI 서비스 마인드 (1H)',                     type:'general' },
+  { id:'e16', date:'2026-06-19', time:'15:00-16:00', title:'BDI 고객 응대 기본 스킬 (1H)',               type:'general' },
+  { id:'e17', date:'2026-06-22', time:'15:00-16:00', title:'BDI 공감 커뮤니케이션 (1H)',                 type:'general' },
+  { id:'e18', date:'2026-06-24', time:'14:00-15:00', title:'ISI2 공감 커뮤니케이션 (1H)',                type:'general' },
+  { id:'e19', date:'2026-06-24', time:'15:30-16:30', title:'ISI2 공감 커뮤니케이션 (1H)',                type:'general' },
+  { id:'e20', date:'2026-06-26', time:'14:00-15:00', title:'HSI 공감 커뮤니케이션 (1H)',                 type:'general' },
+  { id:'e3',  date:'2026-06-15', time:'', title:'HDC 센터 컨택 및 교재 발송',            type:'task' },
+  { id:'e4',  date:'2026-06-16', time:'', title:'JJI3센터 컨택 및 교재 발송',           type:'task' },
+  { id:'e5',  date:'2026-06-09', time:'', title:'교육 일정 확정 메일 발송',              type:'task' },
+  { id:'e6',  date:'2026-06-02', time:'', title:'경비 상신',                            type:'task' },
+  { id:'e7',  date:'2026-06-01', time:'', title:'교육 관리 시스템 개발 완료 및 배포',    type:'task' },
+  { id:'e8',  date:'2026-06-02', time:'', title:'7월 특강 주제 선정',                   type:'task' },
+  { id:'e9',  date:'2026-06-02', time:'', title:'불만 고객 응대 심화과정 개발',         type:'task' },
 ];
 
-// localStorage에서 불러오거나 기본값 사용
-function loadEvents() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : DEFAULT_EVENTS.map(e => ({...e}));
-  } catch { return DEFAULT_EVENTS.map(e => ({...e})); }
-}
-function saveEvents() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(EVENTS));
-}
+function loadEvents(){ try{ const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):DEFAULT_EVENTS.map(e=>({...e})); }catch{ return DEFAULT_EVENTS.map(e=>({...e})); } }
+function saveEvents(){ localStorage.setItem(STORAGE_KEY,JSON.stringify(EVENTS)); }
+let EVENTS=loadEvents();
+function genId(){ return 'ev_'+Date.now()+'_'+Math.floor(Math.random()*9999); }
 
-let EVENTS = loadEvents();
-
-function genId() { return 'ev_' + Date.now() + '_' + Math.floor(Math.random()*9999); }
-
-// ── 비밀번호 ──
-let pinValue = '';
-function pinInput(n) {
-  if (pinValue.length >= 4) return;
-  pinValue += n; updateDots();
-  if (pinValue.length === 4) setTimeout(checkPin, 150);
-}
-function pinDel() { pinValue = pinValue.slice(0,-1); updateDots(); document.getElementById('pin-error').textContent = ''; }
-function updateDots() {
-  for (let i=0;i<4;i++) {
-    const d = document.getElementById('d'+i);
-    d.classList.toggle('filled', i < pinValue.length);
-    d.classList.remove('error');
-  }
-}
-function checkPin() {
-  if (pinValue === PASSWORD) {
-    document.getElementById('lock-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
-    renderCalendar();
-  } else {
-    for (let i=0;i<4;i++) document.getElementById('d'+i).classList.add('error');
-    document.getElementById('pin-error').textContent = '비밀번호가 틀렸습니다';
-    setTimeout(() => { pinValue=''; updateDots(); }, 800);
-  }
+let pinValue='';
+function pinInput(n){ if(pinValue.length>=4)return; pinValue+=n; updateDots(); if(pinValue.length===4)setTimeout(checkPin,150); }
+function pinDel(){ pinValue=pinValue.slice(0,-1); updateDots(); document.getElementById('pin-error').textContent=''; }
+function updateDots(){ for(let i=0;i<4;i++){ const d=document.getElementById('d'+i); d.classList.toggle('filled',i<pinValue.length); d.classList.remove('error'); } }
+function checkPin(){
+  if(pinValue===PASSWORD){ document.getElementById('lock-screen').style.display='none'; document.getElementById('app').style.display='flex'; renderCalendar(); }
+  else{ for(let i=0;i<4;i++)document.getElementById('d'+i).classList.add('error'); document.getElementById('pin-error').textContent='비밀번호가 틀렸습니다'; setTimeout(()=>{pinValue='';updateDots();},800); }
 }
 
-// ── 캘린더 ──
-const today = new Date();
-let curYear = today.getFullYear(), curMonth = today.getMonth();
+const today=new Date();
+let curYear=today.getFullYear(),curMonth=today.getMonth();
+function changeMonth(d){ curMonth+=d; if(curMonth>11){curMonth=0;curYear++;} if(curMonth<0){curMonth=11;curYear--;} closeDetail(); renderCalendar(); }
+function goToday(){ curYear=today.getFullYear(); curMonth=today.getMonth(); closeDetail(); renderCalendar(); }
+function sortEvents(evs){ return evs.slice().sort((a,b)=>{ const tA=TYPE_ORDER[a.type]??99,tB=TYPE_ORDER[b.type]??99; return tA!==tB?tA-tB:(a.time||'').localeCompare(b.time||''); }); }
 
-function changeMonth(d) {
-  curMonth += d;
-  if (curMonth>11){curMonth=0;curYear++;} if (curMonth<0){curMonth=11;curYear--;}
-  closeDetail(); renderCalendar();
-}
-function goToday() { curYear=today.getFullYear(); curMonth=today.getMonth(); closeDetail(); renderCalendar(); }
-
-function sortEvents(evs) {
-  return evs.slice().sort((a,b) => {
-    const tA = TYPE_ORDER[a.type]??99, tB = TYPE_ORDER[b.type]??99;
-    return tA!==tB ? tA-tB : (a.time||'').localeCompare(b.time||'');
-  });
-}
-
-function renderCalendar() {
-  document.getElementById('month-title').textContent = `${curYear}년 ${curMonth+1}월`;
-  const firstDay=new Date(curYear,curMonth,1).getDay();
-  const lastDate=new Date(curYear,curMonth+1,0).getDate();
-  const prevLast=new Date(curYear,curMonth,0).getDate();
+function renderCalendar(){
+  document.getElementById('month-title').textContent=`${curYear}년 ${curMonth+1}월`;
+  const firstDay=new Date(curYear,curMonth,1).getDay(), lastDate=new Date(curYear,curMonth+1,0).getDate(), prevLast=new Date(curYear,curMonth,0).getDate();
   const total=Math.ceil((firstDay+lastDate)/7)*7;
-  const body=document.getElementById('cal-body');
-  body.innerHTML='';
-
-  for (let i=0;i<total;i++) {
-    const cell=document.createElement('div');
-    cell.className='cal-day';
+  const body=document.getElementById('cal-body'); body.innerHTML='';
+  for(let i=0;i<total;i++){
+    const cell=document.createElement('div'); cell.className='cal-day';
     let cY=curYear,cM=curMonth,cD;
-    if (i<firstDay) { cD=prevLast-firstDay+1+i; cM=curMonth-1; if(cM<0){cM=11;cY--;} cell.classList.add('other-month'); }
-    else if (i-firstDay<lastDate) { cD=i-firstDay+1; }
-    else { cD=i-firstDay-lastDate+1; cM=curMonth+1; if(cM>11){cM=0;cY++;} cell.classList.add('other-month'); }
-
+    if(i<firstDay){cD=prevLast-firstDay+1+i;cM=curMonth-1;if(cM<0){cM=11;cY--;}cell.classList.add('other-month');}
+    else if(i-firstDay<lastDate){cD=i-firstDay+1;}
+    else{cD=i-firstDay-lastDate+1;cM=curMonth+1;if(cM>11){cM=0;cY++;}cell.classList.add('other-month');}
     const dow=new Date(cY,cM,cD).getDay();
-    if (dow===0) cell.classList.add('sun');
-    if (dow===6) cell.classList.add('sat');
-    if (cY===today.getFullYear()&&cM===today.getMonth()&&cD===today.getDate()) cell.classList.add('today');
-
+    if(dow===0)cell.classList.add('sun'); if(dow===6)cell.classList.add('sat');
+    if(cY===today.getFullYear()&&cM===today.getMonth()&&cD===today.getDate())cell.classList.add('today');
     const dateStr=`${cY}-${String(cM+1).padStart(2,'0')}-${String(cD).padStart(2,'0')}`;
-
-    const numRow=document.createElement('div');
-    numRow.className='day-num-row';
-    const numEl=document.createElement('div');
-    numEl.className='day-num'; numEl.textContent=cD;
-    numRow.appendChild(numEl);
-    if (LEAVES[dateStr]) {
-      const tag=document.createElement('span');
-      tag.className='leave-tag'; tag.textContent=LEAVES[dateStr];
-      numRow.appendChild(tag);
-    }
+    const numRow=document.createElement('div'); numRow.className='day-num-row';
+    const numEl=document.createElement('div'); numEl.className='day-num'; numEl.textContent=cD; numRow.appendChild(numEl);
+    if(LEAVES[dateStr]){const tag=document.createElement('span');tag.className='leave-tag';tag.textContent=LEAVES[dateStr];numRow.appendChild(tag);}
     cell.appendChild(numRow);
-
-    if (HOLIDAYS[dateStr]) {
-      cell.classList.add('is-holiday');
-      const hl=document.createElement('div');
-      hl.className='holiday-label'; hl.textContent=HOLIDAYS[dateStr];
-      cell.appendChild(hl);
-    }
-
-    sortEvents(EVENTS.filter(e=>e.date===dateStr)).forEach(ev => {
+    if(HOLIDAYS[dateStr]){cell.classList.add('is-holiday');const hl=document.createElement('div');hl.className='holiday-label';hl.textContent=HOLIDAYS[dateStr];cell.appendChild(hl);}
+    sortEvents(EVENTS.filter(e=>e.date===dateStr)).forEach(ev=>{
       const chip=document.createElement('div');
       chip.className=`event-chip type-${ev.type||'general'}`;
-      chip.textContent=(ev.time?ev.time+' ':'')+ev.title;
-      chip.title=ev.title;
-      if (ev.done) chip.classList.add('done');
-      chip.addEventListener('click',e=>{ e.stopPropagation(); onChipClick(chip,ev,dateStr); });
+      chip.textContent=(ev.time?ev.time+' ':'')+ev.title; chip.title=ev.title;
+      if(ev.done)chip.classList.add('done');
+      chip.addEventListener('click',e=>{e.stopPropagation();onChipClick(chip,ev,dateStr);});
       cell.appendChild(chip);
     });
     body.appendChild(cell);
   }
 }
 
-// ── 하단 상세 패널 ──
-let selectedChip=null, selectedEvent=null;
-
-function onChipClick(chip,ev,dateStr) {
-  if (selectedChip===chip) { closeDetail(); return; }
-  if (selectedChip) selectedChip.classList.remove('selected');
-  selectedChip=chip; selectedEvent=ev;
-  chip.classList.add('selected');
-
-  const [y,m,d]=dateStr.split('-');
-  const days=['일','월','화','수','목','금','토'];
-  const dow=new Date(+y,+m-1,+d).getDay();
-  document.getElementById('detail-bar-title').textContent=
-    `${+y}년 ${+m}월 ${+d}일 (${days[dow]}) — ${TYPE_LABEL[ev.type]||'일정'} 상세`;
-
-  updateDetailPanel(ev, y, m, d, days[dow]);
+let selectedChip=null,selectedEvent=null;
+function onChipClick(chip,ev,dateStr){
+  if(selectedChip===chip){closeDetail();return;}
+  if(selectedChip)selectedChip.classList.remove('selected');
+  selectedChip=chip;selectedEvent=ev;chip.classList.add('selected');
+  const [y,m,d]=dateStr.split('-'), days=['일','월','화','수','목','금','토'], dow=new Date(+y,+m-1,+d).getDay();
+  document.getElementById('detail-bar-title').textContent=`${+y}년 ${+m}월 ${+d}일 (${days[dow]}) — ${TYPE_LABEL[ev.type]||'일정'} 상세`;
+  updateDetailPanel(ev,y,m,d,days[dow]);
   document.getElementById('detail-bar').classList.add('open');
 }
+function closeDetail(){ document.getElementById('detail-bar').classList.remove('open'); if(selectedChip){selectedChip.classList.remove('selected');selectedChip=null;} selectedEvent=null; }
 
-function closeDetail() {
-  document.getElementById('detail-bar').classList.remove('open');
-  if (selectedChip) { selectedChip.classList.remove('selected'); selectedChip=null; }
-  selectedEvent=null;
+function updateDetailPanel(ev,y,m,d,dowStr){
+  const isDone=!!ev.done;
+  const card=document.getElementById('detail-card');
+  card.className=`detail-card type-${ev.type||'general'}`;
+  card.innerHTML=`<div class="detail-type-badge">${TYPE_LABEL[ev.type]||ev.type}</div><div class="detail-info"><div class="detail-title" style="${isDone?'text-decoration:line-through;color:#aaa;':''}">${ev.title}</div><div class="detail-time">${ev.time?'⏰ '+ev.time:'⏰ 종일'}</div><div class="detail-date">📅 ${+y}년 ${+m}월 ${+d}일 (${dowStr})</div></div>`;
+  const doneBtn=document.getElementById('done-btn');
+  doneBtn.textContent=isDone?'↩ 완료 취소':'✓ 완료';
+  doneBtn.classList.toggle('is-done',isDone);
+}
+function toggleDone(id){ const ev=EVENTS.find(e=>e.id===id); if(ev){ev.done=!ev.done;saveEvents();return ev.done;} }
+function clickDone(){
+  if(!selectedEvent)return;
+  toggleDone(selectedEvent.id);
+  const [y,m,d]=selectedEvent.date.split('-'), days=['일','월','화','수','목','금','토'];
+  updateDetailPanel(selectedEvent,y,m,d,days[new Date(+y,+m-1,+d).getDay()]);
+  renderCalendar();
 }
 
-// ── 모달 ──
-let editMode=false; // 'add' | 'edit'
-
-function openModal(mode) {
-  editMode = mode;
-  const isEdit = mode==='edit' && selectedEvent;
-  document.getElementById('modal-title').textContent = isEdit ? '일정 수정' : '일정 추가';
-  document.getElementById('btn-delete').style.display = isEdit ? 'block' : 'none';
-
-  if (isEdit) {
-    document.getElementById('f-date').value  = selectedEvent.date;
-    document.getElementById('f-time').value  = selectedEvent.time||'';
-    document.getElementById('f-title').value = selectedEvent.title;
-    document.getElementById('f-type').value  = selectedEvent.type||'general';
-  } else {
-    const defDate = `${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    document.getElementById('f-date').value  = defDate;
-    document.getElementById('f-time').value  = '';
-    document.getElementById('f-title').value = '';
-    document.getElementById('f-type').value  = 'task';
-  }
+let editMode=false;
+function openModal(mode){
+  editMode=mode; const isEdit=mode==='edit'&&selectedEvent;
+  document.getElementById('modal-title').textContent=isEdit?'일정 수정':'일정 추가';
+  document.getElementById('btn-delete').style.display=isEdit?'block':'none';
+  if(isEdit){ document.getElementById('f-date').value=selectedEvent.date; document.getElementById('f-time').value=selectedEvent.time||''; document.getElementById('f-title').value=selectedEvent.title; document.getElementById('f-type').value=selectedEvent.type||'general'; }
+  else{ document.getElementById('f-date').value=`${curYear}-${String(curMonth+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`; document.getElementById('f-time').value=''; document.getElementById('f-title').value=''; document.getElementById('f-type').value='task'; }
   document.getElementById('modal-overlay').classList.add('open');
 }
-
-function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
-function onOverlayClick(e) { if (e.target===document.getElementById('modal-overlay')) closeModal(); }
-
-function saveEvent() {
-  const date  = document.getElementById('f-date').value.trim();
-  const time  = document.getElementById('f-time').value.trim();
-  const title = document.getElementById('f-title').value.trim();
-  const type  = document.getElementById('f-type').value;
-
-  if (!date)  { alert('날짜를 입력해 주세요.'); return; }
-  if (!title) { alert('일정 제목을 입력해 주세요.'); return; }
-
-  if (editMode==='edit' && selectedEvent) {
-    const idx = EVENTS.findIndex(e=>e.id===selectedEvent.id);
-    if (idx!==-1) { EVENTS[idx] = { ...EVENTS[idx], date, time, title, type }; selectedEvent=EVENTS[idx]; }
-  } else {
-    EVENTS.push({ id:genId(), date, time, title, type });
-  }
-  saveEvents();
-  closeModal();
-  closeDetail();
-  renderCalendar();
+function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
+function onOverlayClick(e){ if(e.target===document.getElementById('modal-overlay'))closeModal(); }
+function saveEvent(){
+  const date=document.getElementById('f-date').value.trim(), time=document.getElementById('f-time').value.trim(), title=document.getElementById('f-title').value.trim(), type=document.getElementById('f-type').value;
+  if(!date){alert('날짜를 입력해 주세요.');return;} if(!title){alert('일정 제목을 입력해 주세요.');return;}
+  if(editMode==='edit'&&selectedEvent){ const idx=EVENTS.findIndex(e=>e.id===selectedEvent.id); if(idx!==-1){EVENTS[idx]={...EVENTS[idx],date,time,title,type};selectedEvent=EVENTS[idx];} }
+  else{ EVENTS.push({id:genId(),date,time,title,type}); }
+  saveEvents(); closeModal(); closeDetail(); renderCalendar();
+}
+function deleteEvent(){
+  if(!selectedEvent)return; if(!confirm(`"${selectedEvent.title}" 일정을 삭제하시겠습니까?`))return;
+  EVENTS=EVENTS.filter(e=>e.id!==selectedEvent.id); saveEvents(); closeModal(); closeDetail(); renderCalendar();
 }
 
-function toggleDone(id) {
-  const ev = EVENTS.find(e=>e.id===id);
-  if (ev) { ev.done = !ev.done; saveEvents(); return ev.done; }
+let excelRows=[],filteredExcelData=[];
+function handleExcelUpload(event){
+  const file=event.target.files[0]; if(!file)return; event.target.value='';
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true}); const allRows=[];
+      wb.SheetNames.forEach(name=>{ const ws=wb.Sheets[name]; XLSX.utils.sheet_to_json(ws,{header:1,defval:''}).forEach(row=>{if(row.some(c=>c!==''))allRows.push(row);}); });
+      excelRows=allRows; document.getElementById('excel-name-filter').value=''; applyExcelFilter();
+      document.getElementById('excel-modal-overlay').classList.add('open');
+    }catch(err){alert('엑셀 파일을 읽는 중 오류가 발생했습니다.\n'+err.message);}
+  };
+  reader.readAsArrayBuffer(file);
 }
-
-function updateDetailPanel(ev, y, m, d, dowStr) {
-  const isDone = !!ev.done;
-  const card = document.getElementById('detail-card');
-  card.className = `detail-card type-${ev.type||'general'}`;
-  card.innerHTML = `
-    <div class="detail-type-badge">${TYPE_LABEL[ev.type]||ev.type}</div>
-    <div class="detail-info">
-      <div class="detail-title" style="${isDone?'text-decoration:line-through;color:#aaa;':''}">${ev.title}</div>
-      <div class="detail-time">${ev.time?'⏰ '+ev.time:'⏰ 종일'}</div>
-      <div class="detail-date">📅 ${+y}년 ${+m}월 ${+d}일 (${dowStr})</div>
-    </div>`;
-  const doneBtn = document.getElementById('done-btn');
-  doneBtn.textContent = isDone ? '↩ 완료 취소' : '✓ 완료';
-  doneBtn.classList.toggle('is-done', isDone);
+function parseDate(val){
+  if(!val&&val!==0)return null;
+  if(val instanceof Date)return `${val.getFullYear()}-${String(val.getMonth()+1).padStart(2,'0')}-${String(val.getDate()).padStart(2,'0')}`;
+  const s=String(val).trim();
+  const m1=s.match(/^(\d{1,2})[\/\-](\d{1,2})$/); if(m1)return `2026-${String(m1[1]).padStart(2,'0')}-${String(m1[2]).padStart(2,'0')}`;
+  const m2=s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/); if(m2)return `${m2[1]}-${String(m2[2]).padStart(2,'0')}-${String(m2[3]).padStart(2,'0')}`;
+  return null;
 }
-
-function clickDone() {
-  if (!selectedEvent) return;
-  toggleDone(selectedEvent.id);
-  const [y,m,d] = selectedEvent.date.split('-');
-  const days = ['일','월','화','수','목','금','토'];
-  const dow = new Date(+y,+m-1,+d).getDay();
-  updateDetailPanel(selectedEvent, y, m, d, days[dow]);
-  renderCalendar();
+function parseTime(val){ if(!val)return ''; const s=String(val).trim(); const m=s.match(/(\d{1,2}:\d{2})\s*[~\-]\s*(\d{1,2}:\d{2})/); return m?`${m[1]}-${m[2]}`:s; }
+function applyExcelFilter(){
+  const filter=(document.getElementById('excel-name-filter').value||'').trim(); let parsed=[];
+  excelRows.forEach(row=>{
+    let dateVal=null,dateIdx=-1;
+    row.forEach((cell,i)=>{ if(dateIdx===-1&&parseDate(cell)){dateVal=parseDate(cell);dateIdx=i;} });
+    if(!dateVal)return;
+    let timeVal='';
+    for(let i=dateIdx+1;i<row.length;i++){ const t=parseTime(row[i]); if(t&&t.includes('-')&&t.includes(':')){timeVal=t;break;} }
+    const textCells=row.filter((c,i)=>{ if(i===dateIdx)return false; const s=String(c||'').trim(); if(!s)return false; if(parseTime(s)&&s.includes(':'))return false; if(/^\d+H$/.test(s)||/^\d+명$/.test(s))return false; if(['기존','신규','오프라인','온라인','📋'].includes(s))return false; return true; }).map(c=>String(c).trim());
+    if(filter&&!row.some(c=>String(c||'').includes(filter)))return;
+    const company=textCells.find(t=>t.length<=6&&!/MGR|강사/.test(t))||'';
+    const course=textCells.find(t=>t.length>2&&t!==company&&!/MGR|강사|담당/.test(t))||textCells[0]||'';
+    const title=company?`${company} ${course}`:course; if(!title)return;
+    parsed.push({date:dateVal,time:timeVal,title:title.trim()});
+  });
+  renderExcelPreview(parsed,filter);
 }
-
-function deleteEvent() {
-  if (!selectedEvent) return;
-  if (!confirm(`"${selectedEvent.title}" 일정을 삭제하시겠습니까?`)) return;
-  EVENTS = EVENTS.filter(e=>e.id!==selectedEvent.id);
-  saveEvents();
-  closeModal();
-  closeDetail();
-  renderCalendar();
+function renderExcelPreview(data,filter){
+  filteredExcelData=data;
+  document.getElementById('excel-info').textContent=filter?`"${filter}" 필터 적용 — ${data.length}건 발견`:`전체 ${data.length}건 발견`;
+  const wrap=document.getElementById('excel-preview-wrap');
+  if(data.length===0){wrap.innerHTML=`<div class="no-data">조건에 맞는 일정이 없습니다.<br>강사 이름을 정확히 입력해 주세요.</div>`;updateSelectedCount();return;}
+  let html=`<table class="excel-preview-table"><thead><tr><th><input type="checkbox" id="chk-all" onchange="toggleSelectAll(this.checked)"></th><th>날짜</th><th>시간</th><th>제목</th></tr></thead><tbody>`;
+  data.forEach((row,i)=>{ html+=`<tr><td><input type="checkbox" class="row-chk" data-idx="${i}" onchange="updateSelectedCount()"></td><td>${row.date}</td><td>${row.time||'종일'}</td><td>${row.title}</td></tr>`; });
+  wrap.innerHTML=html+'</tbody></table>'; updateSelectedCount();
 }
+function toggleSelectAll(checked){ const val=checked!==undefined?checked:!document.querySelector('.row-chk')?.checked; document.querySelectorAll('.row-chk').forEach(c=>c.checked=val); const a=document.getElementById('chk-all'); if(a)a.checked=val; updateSelectedCount(); }
+function updateSelectedCount(){ document.getElementById('excel-selected-count').textContent=`${document.querySelectorAll('.row-chk:checked').length}개 선택됨`; }
+function importSelectedEvents(){
+  const type=document.getElementById('excel-type-select').value, checked=document.querySelectorAll('.row-chk:checked');
+  if(checked.length===0){alert('추가할 일정을 선택해 주세요.');return;}
+  let added=0;
+  checked.forEach(chk=>{ const row=filteredExcelData[+chk.dataset.idx]; if(!row)return; if(EVENTS.find(e=>e.date===row.date&&e.title===row.title&&e.time===row.time))return; EVENTS.push({id:genId(),date:row.date,time:row.time||'',title:row.title,type:type}); added++; });
+  saveEvents(); renderCalendar(); closeExcelModal(); alert(`✅ ${added}개 일정이 캘린더에 추가되었습니다!`);
+}
+function closeExcelModal(){ document.getElementById('excel-modal-overlay').classList.remove('open'); }
 
-// 빈 곳 클릭 시 닫기
-document.addEventListener('click', e => {
-  const bar=document.getElementById('detail-bar');
-  if (bar.classList.contains('open')&&!bar.contains(e.target)&&!e.target.classList.contains('event-chip'))
-    closeDetail();
-});
-document.addEventListener('keydown', e => {
-  if (document.getElementById('lock-screen').style.display!=='none') {
-    if (e.key>='0'&&e.key<='9') pinInput(e.key);
-    if (e.key==='Backspace') pinDel();
-  }
-  if (e.key==='Escape') { closeDetail(); closeModal(); }
-});
+document.addEventListener('click',e=>{ const bar=document.getElementById('detail-bar'); if(bar.classList.contains('open')&&!bar.contains(e.target)&&!e.target.classList.contains('event-chip'))closeDetail(); });
+document.addEventListener('keydown',e=>{ if(document.getElementById('lock-screen').style.display!=='none'){if(e.key>='0'&&e.key<='9')pinInput(e.key);if(e.key==='Backspace')pinDel();} if(e.key==='Escape'){closeDetail();closeModal();} });
 </script>
 </body>
 </html>
+
